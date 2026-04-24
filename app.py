@@ -90,7 +90,7 @@ def listar_productos():
         cursor = conn.cursor()
 
         cursor.execute("""
-            SELECT TOP 20 id, nombre, precio, stock, imagen_url
+            SELECT TOP 20 id, nombre, precio, stock, url_imagen
             FROM productos
             ORDER BY id DESC
         """)
@@ -103,7 +103,7 @@ def listar_productos():
                 "nombre": row[1],
                 "precio": float(row[2]) if row[2] is not None else None,
                 "stock": row[3],
-                "imagen_url": row[3]
+                "url_imagen": row[3]
             })
 
         return jsonify({
