@@ -89,8 +89,10 @@ def listar_productos():
         conn = get_connection()
         cursor = conn.cursor()
 
+        # Ajusta tu SELECT para traer solo las columnas que necesitas 
+        # o asegúrate de que el índice coincida con el orden del SELECT
         cursor.execute("""
-            SELECT TOP 20 id, nombre, precio, stock, url_imagen
+            SELECT id, nombre, precio, stock, url_imagen
             FROM productos
             ORDER BY id DESC
         """)
@@ -103,7 +105,7 @@ def listar_productos():
                 "nombre": row[1],
                 "precio": float(row[2]) if row[2] is not None else None,
                 "stock": row[3],
-                "url_imagen": row[3]
+                "url_imagen": row[4] # Ahora apunta correctamente a la columna 5 (url_imagen)
             })
 
         return jsonify({
