@@ -1,4 +1,4 @@
-mport os
+import os
 from flask import Flask, jsonify
 from mssql_python import connect
 
