@@ -89,8 +89,16 @@ def listar_productos():
         if cursor: cursor.close()
         if conn: conn.close()
 
-@app.route("/enviar-alerta", methods=["POST"])
+@app.route("/enviar-alerta", methods=["GET", "POST"])
 def enviar_alerta():
+    # 1. Manejo del método GET (para pruebas rápidas en navegador)
+    if request.method == 'GET':
+        return jsonify({
+            "success": True, 
+            "message": "La ruta está activa. Envía un POST con JSON (to, subject, message) para enviar un correo."
+        })
+
+    # 2. Manejo del método POST (lógica principal)
     try:
         data = request.get_json()
         if not data:
@@ -101,12 +109,20 @@ def enviar_alerta():
         mensaje = data.get("message")
 
         if not destino or not asunto or not mensaje:
-            return jsonify({"success": False, "message": "Faltan datos (to, subject, message)"}), 400
+            return jsonify({
+                "success": False, 
+                "message": "Faltan datos obligatorios (to, subject, message)"
+            }), 400
 
         enviar_correo_alerta(asunto, mensaje, destino)
         return jsonify({"success": True, "message": "Correo enviado correctamente"})
+        
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({
+            "success": False, 
+            "message": "Ocurrió un error interno",
+            "error": str(e)
+        }), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
