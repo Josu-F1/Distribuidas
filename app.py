@@ -1,10 +1,16 @@
 import os
+import threading
+import resend
 from flask import Flask, jsonify, request
 from mssql_python import connect
 
 app = Flask(__name__)
 
-# --- Configuración de Conexión ---
+# --- CONFIGURACIÓN DE RESEND ---
+resend.api_key = os.environ.get("RESEND_API_KEY")
+FROM_EMAIL = os.environ.get("MAIL_RESEND", "onboarding@resend.dev")
+
+# --- CONFIGURACIÓN DE BASE DE DATOS ---
 def get_connection():
     server = os.getenv("DB_SERVER")
     database = os.getenv("DB_DATABASE")
@@ -12,7 +18,7 @@ def get_connection():
     password = os.getenv("DB_PASSWORD")
     port = os.getenv("DB_PORT", "1433")
 
-    if not server or not database or not username or not password:
+    if not all([server, database, username, password]):
         raise ValueError("Faltan variables de entorno para la base de datos")
 
     connection_string = (
@@ -26,30 +32,26 @@ def get_connection():
     )
     return connect(connection_string)
 
-# --- Lógica de envío de alertas ---
-def enviar_correo_alerta(asunto, mensaje, destino):
-    # AQUÍ DEBES PONER TU LÓGICA DE ENVÍO DE CORREO
-    # Por ejemplo: smtplib, SendGrid, Mailgun, etc.
-    print(f"Simulando envío a {destino}: {asunto}")
-    return True
+# --- FUNCIONES DE APOYO ---
+def enviar_correo_resend(destino, asunto, mensaje):
+    try:
+        resend.Emails.send({
+            "from": FROM_EMAIL,
+            "to": [destino],
+            "subject": asunto,
+            "html": f"<p>{mensaje}</p>"
+        })
+        print(f"Correo enviado exitosamente a {destino}")
+    except Exception as e:
+        print(f"Error enviando correo: {str(e)}")
 
-# --- Rutas ---
+# --- RUTAS ---
 
 @app.route("/")
 def home():
     return jsonify({
         "success": True,
-        "message": "API Flask funcionando correctamente en Render"
-    })
-
-@app.route("/debug-env")
-def debug_env():
-    return jsonify({
-        "DB_SERVER": os.getenv("DB_SERVER"),
-        "DB_DATABASE": os.getenv("DB_DATABASE"),
-        "DB_USERNAME": os.getenv("DB_USERNAME"),
-        "DB_PASSWORD_EXISTS": bool(os.getenv("DB_PASSWORD")),
-        "DB_PORT": os.getenv("DB_PORT"),
+        "message": "API Flask funcionando correctamente"
     })
 
 @app.route("/test-db")
@@ -59,15 +61,11 @@ def test_db():
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT GETDATE() AS fecha_servidor")
+        cursor.execute("SELECT GETDATE()")
         row = cursor.fetchone()
-        return jsonify({
-            "success": True,
-            "message": "Conexión a SQL Server exitosa",
-            "server_date": str(row[0])
-        })
+        return jsonify({"success": True, "server_date": str(row[0])})
     except Exception as e:
-        return jsonify({"success": False, "message": "Error al conectar", "error": str(e)}), 500
+        return jsonify({"success": False, "error": str(e)}), 500
     finally:
         if cursor: cursor.close()
         if conn: conn.close()
@@ -81,47 +79,41 @@ def listar_productos():
         cursor = conn.cursor()
         cursor.execute("SELECT id, nombre, precio, stock, url_imagen FROM productos ORDER BY id DESC")
         rows = cursor.fetchall()
-        data = [{"id": r[0], "nombre": r[1], "precio": float(r[2]) if r[2] else None, "stock": r[3], "url_imagen": r[4]} for r in rows]
+        data = [{"id": r[0], "nombre": r[1], "precio": float(r[2]) if r[2] else 0, "stock": r[3], "url_imagen": r[4]} for r in rows]
         return jsonify({"success": True, "data": data})
     except Exception as e:
-        return jsonify({"success": False, "message": "Error al consultar", "error": str(e)}), 500
+        return jsonify({"success": False, "error": str(e)}), 500
     finally:
         if cursor: cursor.close()
         if conn: conn.close()
 
-@app.route("/enviar-alerta", methods=["GET", "POST"])
-def enviar_alerta():
-    # 1. Manejo del método GET (para pruebas rápidas en navegador)
-    if request.method == 'GET':
+# --- NUEVO ENDPOINT ASÍNCRONO ---
+@app.route("/enviar-alerta-resend", methods=["POST"])
+def enviar_alerta_resend():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No se recibió JSON"}), 400
+
+    correo = data.get("email")
+    asunto = data.get("subject", "Notificación")
+    mensaje = data.get("message", "Mensaje desde Render")
+
+    if not correo:
+        return jsonify({"error": "Falta el email"}), 400
+
+    try:
+        # Ejecuta el envío en un hilo separado para no bloquear la respuesta
+        threading.Thread(target=enviar_correo_resend, args=(correo, asunto, mensaje)).start()
+
         return jsonify({
-            "success": True, 
-            "message": "La ruta está activa. Envía un POST con JSON (to, subject, message) para enviar un correo."
+            "status": "ok",
+            "msg": "Correo enviado (async)"
         })
 
-    # 2. Manejo del método POST (lógica principal)
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"success": False, "message": "No se recibió JSON"}), 400
-        
-        destino = data.get("to")
-        asunto = data.get("subject")
-        mensaje = data.get("message")
-
-        if not destino or not asunto or not mensaje:
-            return jsonify({
-                "success": False, 
-                "message": "Faltan datos obligatorios (to, subject, message)"
-            }), 400
-
-        enviar_correo_alerta(asunto, mensaje, destino)
-        return jsonify({"success": True, "message": "Correo enviado correctamente"})
-        
     except Exception as e:
         return jsonify({
-            "success": False, 
-            "message": "Ocurrió un error interno",
-            "error": str(e)
+            "status": "error",
+            "msg": str(e)
         }), 500
 
 if __name__ == "__main__":
